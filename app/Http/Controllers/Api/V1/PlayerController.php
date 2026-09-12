@@ -1507,10 +1507,15 @@ class PlayerController extends Controller
         $existingIds = $player->certificates()->pluck('id')->toArray();
         $newIds = collect($certificates)->pluck('id')->filter()->toArray();
 
-        // Delete removed certificates
-        $toDelete = array_diff($existingIds, $newIds);
-        if (!empty($toDelete)) {
-            $player->certificates()->whereIn('id', $toDelete)->delete();
+        // Safety guard: only delete removed certificates when at least one incoming
+        // certificate has a tracked server-side ID. This prevents mass-deletion
+        // caused by retried requests where IDs were not yet available (e.g. after
+        // a server timeout on a previous attempt).
+        if (!empty($newIds)) {
+            $toDelete = array_diff($existingIds, $newIds);
+            if (!empty($toDelete)) {
+                $player->certificates()->whereIn('id', $toDelete)->delete();
+            }
         }
 
         // Update or create
@@ -1530,10 +1535,15 @@ class PlayerController extends Controller
         $existingIds = $player->clubContracts()->pluck('id')->toArray();
         $newIds = collect($contracts)->pluck('id')->filter()->toArray();
 
-        // Delete removed contracts
-        $toDelete = array_diff($existingIds, $newIds);
-        if (!empty($toDelete)) {
-            $player->clubContracts()->whereIn('id', $toDelete)->delete();
+        // Safety guard: only delete removed contracts when at least one incoming
+        // contract has a tracked server-side ID. This prevents mass-deletion
+        // caused by retried requests where IDs were not yet available (e.g. after
+        // a server timeout on a previous attempt).
+        if (!empty($newIds)) {
+            $toDelete = array_diff($existingIds, $newIds);
+            if (!empty($toDelete)) {
+                $player->clubContracts()->whereIn('id', $toDelete)->delete();
+            }
         }
 
         // Update or create
@@ -1552,6 +1562,13 @@ class PlayerController extends Controller
     private function generateUniqueSlug(string $name): string
     {
         $slug = Str::slug($name);
+
+        // If slug is empty (e.g. Arabic-only name with no transliteration),
+        // fall back to a random identifier to prevent an infinite while-loop.
+        if (empty($slug)) {
+            return 'player-' . strtolower(Str::random(8));
+        }
+
         $originalSlug = $slug;
         $count = 1;
 
