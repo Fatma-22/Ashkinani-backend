@@ -605,6 +605,7 @@ class PlayerController extends Controller
             }
         }
 
+        // IMPORTANT: `id` as final tiebreaker guarantees stable pagination order.
         $query->orderBy('contract_start_date', 'desc')
               ->orderBy('id', 'desc');
 
@@ -1145,8 +1146,12 @@ class PlayerController extends Controller
         $perPage = $request->get('per_page', 8);
         $now = now()->toDateString();
 
-        // Order: Active players first (by status or future end date), then expired/others. 
+        // Order: Active players first (by status or future end date), then expired/others.
         // Secondary: newest additions first.
+        // IMPORTANT: `id` must always be the final tiebreaker to guarantee a stable,
+        // consistent order across pages — without it MySQL may shuffle rows that share
+        // the same CASE value and created_at, causing duplicates or missing players
+        // when paginating.
         $query->orderByRaw("
             CASE 
                 WHEN UPPER(contract_status) = 'ACTIVE' THEN 0
