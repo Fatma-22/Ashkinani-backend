@@ -851,7 +851,8 @@ class PlayerController extends Controller
             }
         }
 
-        // Contract Status (ACTIVE/EXPIRED)
+        // Contract Status — Priority: contract_end_date ALWAYS determines active/expired status.
+        // Rule: No end_date = EXPIRED. Active = must have a future end_date. No exceptions.
         if ($request->has('contract_status')) {
             $status = $request->contract_status;
             $now = now()->toDateString();
@@ -859,38 +860,23 @@ class PlayerController extends Controller
             $statusArr = is_array($status) ? $status : [$status];
             
             if (in_array('ACTIVE', $statusArr) || in_array('PENDING', $statusArr) || in_array('NEGOTIATION', $statusArr)) {
-                $query->where(function ($q) use ($now, $statusArr) {
-                    $q->where(function ($mq) use ($now, $statusArr) {
-                        $mq->where(function ($sq) use ($now, $statusArr) {
-                            $sq->whereIn('contract_status', $statusArr)
-                              ->orWhere(function ($ssq) use ($now) {
-                                  $ssq->whereNull('contract_end_date')
-                                     ->orWhereDate('contract_end_date', '>=', $now);
-                              });
-                        })
-                        ->where(function ($sq) {
-                            $sq->whereNull('contract_nature')
-                              ->orWhere('contract_nature', '!=', 'TERMINATION');
-                        });
-                    })
-                    ->orWhereHas('documents', function ($c) use ($now) {
-                        $c->where('type', 'contract')
-                          ->whereNotNull('end_date')
-                          ->whereDate('end_date', '>=', $now);
-                    });
-                });
+                // ACTIVE = must have a contract_end_date that is today or in the future.
+                // No end_date = EXPIRED regardless of contract_status field value.
+                $query->whereNotNull('contract_end_date')
+                      ->whereDate('contract_end_date', '>=', $now)
+                      ->where(function ($sq) {
+                          $sq->whereNull('contract_nature')
+                             ->orWhere('contract_nature', '!=', 'TERMINATION');
+                      });
             } elseif (in_array('EXPIRED', $statusArr)) {
+                // EXPIRED = no end_date, OR end_date in the past, OR TERMINATION contract.
                 $query->where(function ($q) use ($now) {
-                    $q->where('contract_nature', 'TERMINATION')
+                    $q->whereNull('contract_end_date')
+                      ->orWhere('contract_nature', 'TERMINATION')
                       ->orWhere(function ($sq) use ($now) {
                           $sq->whereNotNull('contract_end_date')
                              ->whereDate('contract_end_date', '<', $now);
                       });
-                })
-                ->whereDoesntHave('documents', function ($c) use ($now) {
-                    $c->where('type', 'contract')
-                      ->whereNotNull('end_date')
-                      ->whereDate('end_date', '>=', $now);
                 });
             }
         }

@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -14,3 +15,10 @@ Artisan::command('notify:stale-cvs', function () {
         // This could be extended to send emails to admins
     }
 })->purpose('Notify admins about stale CVs')->daily();
+
+// Auto-update contract_status to EXPIRED for players whose contract_end_date has passed.
+// Runs every day at midnight.
+Schedule::command('contracts:update-expired')
+    ->dailyAt('00:00')
+    ->withoutOverlapping()
+    ->runInBackground();
