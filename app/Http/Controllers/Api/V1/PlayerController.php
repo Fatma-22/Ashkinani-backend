@@ -869,10 +869,13 @@ class PlayerController extends Controller
                              ->orWhere('contract_nature', '!=', 'TERMINATION');
                       });
             } elseif (in_array('EXPIRED', $statusArr)) {
-                // EXPIRED = no end_date, OR end_date in the past, OR TERMINATION contract.
+                // EXPIRED = genuinely ended contracts only:
+                // end_date in the past, OR a TERMINATION contract.
+                // Players with NO contract dates are NOT considered expired
+                // (they are "no signing date" cases) and active contracts
+                // (future end_date) must never leak into this tab.
                 $query->where(function ($q) use ($now) {
-                    $q->whereNull('contract_end_date')
-                      ->orWhere('contract_nature', 'TERMINATION')
+                    $q->where('contract_nature', 'TERMINATION')
                       ->orWhere(function ($sq) use ($now) {
                           $sq->whereNotNull('contract_end_date')
                              ->whereDate('contract_end_date', '<', $now);
