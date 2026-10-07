@@ -76,10 +76,9 @@ class DashboardController extends Controller
                         $sq->whereNull('contract_end_date')
                             ->orWhere('contract_end_date', '>=', $now);
                     })
-                    ->where(function ($sq) {
-                        $sq->whereNull('contract_nature')
-                          ->orWhere('contract_nature', '!=', 'TERMINATION');
-                    });
+                    // Only players who are actually signed or authorized count as active
+                    // contracts. Self-added players (NOT_JOINED) and terminated ones are excluded.
+                    ->whereIn('contract_nature', ['SIGNING', 'AUTHORIZATION']);
                 })
                 ->orWhereHas('documents', function ($c) use ($now) {
                     $c->where('type', 'contract')

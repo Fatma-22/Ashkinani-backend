@@ -23,6 +23,7 @@ class Deal extends Model
         'contract_start_date',
         'contract_end_date',
         'contract_url',
+        'image_url',
         'amount',
         'currency',
         'type',

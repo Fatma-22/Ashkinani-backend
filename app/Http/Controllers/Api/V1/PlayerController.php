@@ -895,6 +895,21 @@ class PlayerController extends Controller
                 $query->where('contract_nature', $nature);
             }
         }
+
+        // Exclude specific contract natures (e.g. NOT_JOINED self-registrations and
+        // AUTHORIZATION members which are managed in their own dedicated category).
+        // Rows with a NULL contract_nature (legacy records) are always kept.
+        if ($request->has('exclude_contract_nature')) {
+            $exclude = $request->exclude_contract_nature;
+            $exclude = is_array($exclude) ? $exclude : [$exclude];
+            $exclude = array_filter($exclude);
+            if (!empty($exclude)) {
+                $query->where(function ($q) use ($exclude) {
+                    $q->whereNull('contract_nature')
+                      ->orWhereNotIn('contract_nature', $exclude);
+                });
+            }
+        }
         // --- Coach Certificate Filters ---
         if ($request->hasAny(['certificate_type', 'issuing_body', 'level', 'source_type', 'certificate_name'])) {
             $query->whereHas('certificates', function ($q) use ($request) {

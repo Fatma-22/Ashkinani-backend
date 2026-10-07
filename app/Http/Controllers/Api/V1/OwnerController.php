@@ -366,7 +366,14 @@ class OwnerController extends Controller
             'description_ar' => 'nullable|string',
             'transaction_date' => 'nullable|date',
             'related_to' => 'nullable|string',
+            'invoice' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ]);
+
+        unset($validated['invoice']);
+
+        if ($request->hasFile('invoice')) {
+            $validated['invoice_path'] = $this->mediaService->upload($request->file('invoice'), 'financial-invoices');
+        }
 
         $record = FinancialRecord::create($validated + ['created_by' => auth()->id()]);
         return $this->success($record, 'Financial record created successfully', 201);
@@ -384,7 +391,19 @@ class OwnerController extends Controller
             'description_ar' => 'nullable|string',
             'transaction_date' => 'nullable|date',
             'related_to' => 'nullable|string',
+            'invoice' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'remove_invoice' => 'nullable|boolean',
         ]);
+
+        unset($validated['invoice'], $validated['remove_invoice']);
+
+        if ($request->hasFile('invoice')) {
+            $this->mediaService->delete($record->invoice_path);
+            $validated['invoice_path'] = $this->mediaService->upload($request->file('invoice'), 'financial-invoices');
+        } elseif ($request->boolean('remove_invoice')) {
+            $this->mediaService->delete($record->invoice_path);
+            $validated['invoice_path'] = null;
+        }
 
         $record->update($validated);
         return $this->success($record, 'Financial record updated successfully');
@@ -392,6 +411,7 @@ class OwnerController extends Controller
 
     public function destroyFinancialRecord(FinancialRecord $record)
     {
+        $this->mediaService->delete($record->invoice_path);
         $record->delete();
         return $this->success(null, 'Financial record deleted successfully');
     }

@@ -35,6 +35,7 @@ class DealResource extends JsonResource
             'contractStartDate' => $this->when(auth()->check() && in_array(auth()->user()->role, ['ADMIN', 'OWNER', 'AGENT']), $this->contract_start_date ? \Illuminate\Support\Carbon::parse($this->contract_start_date)->format('Y-m-d') : null),
             'contractEndDate' => $this->when(auth()->check() && in_array(auth()->user()->role, ['ADMIN', 'OWNER', 'AGENT']), $this->contract_end_date ? \Illuminate\Support\Carbon::parse($this->contract_end_date)->format('Y-m-d') : null),
             'contractUrl' => $this->when(auth()->check() && in_array(auth()->user()->role, ['ADMIN', 'OWNER', 'AGENT']), $this->contract_url),
+            'imageUrl' => $this->image_url,
             'amount' => $this->amount,
             'currency' => $this->currency,
             'type' => $this->type,

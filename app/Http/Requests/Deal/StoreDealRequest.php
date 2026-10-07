@@ -35,6 +35,7 @@ class StoreDealRequest extends FormRequest
             'contractStartDate' => 'nullable|date',
             'contractEndDate' => 'nullable|date',
             'contractUrl' => 'nullable|string',
+            'imageUrl' => 'nullable|string',
             'amount' => 'nullable|numeric',
             'currency' => 'nullable|string',
             'type' => 'nullable|string',

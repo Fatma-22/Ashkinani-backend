@@ -216,6 +216,7 @@ class DealController extends Controller
                 'contract_start_date' => $validated['contractStartDate'] ?? null,
                 'contract_end_date' => $validated['contractEndDate'] ?? null,
                 'contract_url' => $validated['contractUrl'] ?? null,
+                'image_url' => $validated['imageUrl'] ?? null,
                 'amount' => $validated['amount'] ?? null,
                 'currency' => $validated['currency'] ?? 'USD',
                 'type' => $validated['type'] ?? null,
@@ -281,6 +282,8 @@ class DealController extends Controller
             $dealData['contract_end_date'] = $validated['contractEndDate'];
         if (array_key_exists('contractUrl', $validated))
             $dealData['contract_url'] = $validated['contractUrl'];
+        if (array_key_exists('imageUrl', $validated))
+            $dealData['image_url'] = $validated['imageUrl'];
         if (array_key_exists('amount', $validated))
             $dealData['amount'] = $validated['amount'];
         if (array_key_exists('currency', $validated))

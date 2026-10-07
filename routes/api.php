@@ -74,6 +74,13 @@ Route::prefix('v1')->group(function () {
             Route::post('/owner/financials', [\App\Http\Controllers\Api\V1\OwnerController::class, 'storeFinancialRecord']);
             Route::put('/owner/financials/{record}', [\App\Http\Controllers\Api\V1\OwnerController::class, 'updateFinancialRecord']);
             Route::delete('/owner/financials/{record}', [\App\Http\Controllers\Api\V1\OwnerController::class, 'destroyFinancialRecord']);
+
+            // Player Payments (confidential — management only)
+            Route::get('/players/{player}/payments', [\App\Http\Controllers\Api\V1\PlayerPaymentController::class, 'index']);
+            Route::post('/players/{player}/payments', [\App\Http\Controllers\Api\V1\PlayerPaymentController::class, 'store']);
+            Route::put('/players/{player}/payments/{payment}', [\App\Http\Controllers\Api\V1\PlayerPaymentController::class, 'update']);
+            Route::post('/players/{player}/payments/{payment}', [\App\Http\Controllers\Api\V1\PlayerPaymentController::class, 'update']);
+            Route::delete('/players/{player}/payments/{payment}', [\App\Http\Controllers\Api\V1\PlayerPaymentController::class, 'destroy']);
         });
 
         /**

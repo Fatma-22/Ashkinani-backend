@@ -152,6 +152,11 @@ class Player extends Model
         return $this->morphMany(FinancialRecord::class, 'related');
     }
 
+    public function payments()
+    {
+        return $this->hasMany(PlayerPayment::class);
+    }
+
     public function deals()
     {
         return $this->hasMany(Deal::class);

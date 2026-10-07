@@ -22,6 +22,7 @@ class FinancialRecord extends Model
         'related_type',
         'related_id',
         'related_to',
+        'invoice_path',
         'created_by'
     ];
 
@@ -29,6 +30,21 @@ class FinancialRecord extends Model
         'amount' => 'decimal:2',
         'transaction_date' => 'date',
     ];
+
+    protected $appends = ['invoice_url'];
+
+    public function getInvoiceUrlAttribute(): ?string
+    {
+        if (!$this->invoice_path) {
+            return null;
+        }
+
+        if (filter_var($this->invoice_path, FILTER_VALIDATE_URL)) {
+            return $this->invoice_path;
+        }
+
+        return asset('storage/' . $this->invoice_path);
+    }
 
     public function related()
     {
