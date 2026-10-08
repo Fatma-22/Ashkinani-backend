@@ -181,10 +181,29 @@ class PlayerResource extends JsonResource
 
         if ($isPrivileged || ($visibility['contractInfo'] ?? false)) {
             $data['contracts'] = ContractResource::collection($this->whenLoaded('contracts'));
-            $data['contractStartDate'] = $this->contract_start_date;
-            $data['contractEndDate'] = $this->contract_end_date;
+            
+            // Dynamically calculate effective dates from documents if loaded
+            $effectiveStartDate = $this->contract_start_date;
+            $effectiveEndDate = $this->contract_end_date;
+            $effectiveStatus = $this->contract_status;
+            
+            if ($this->relationLoaded('documents')) {
+                $now = now()->toDateString();
+                $contractDocs = $this->documents->filter(fn($d) => strtolower((string)$d->type) === 'contract')
+                                                ->whereNotNull('end_date')
+                                                ->sortByDesc('end_date');
+                if ($contractDocs->isNotEmpty()) {
+                    $activeDoc = $contractDocs->first(fn($d) => $d->end_date->toDateString() >= $now) ?? $contractDocs->first();
+                    $effectiveStartDate = $activeDoc->start_date?->toDateString();
+                    $effectiveEndDate = $activeDoc->end_date->toDateString();
+                    $effectiveStatus = $activeDoc->end_date->toDateString() >= $now ? 'ACTIVE' : 'EXPIRED';
+                }
+            }
+            
+            $data['contractStartDate'] = $effectiveStartDate;
+            $data['contractEndDate'] = $effectiveEndDate;
             $data['contractDuration'] = $this->contract_duration;
-            $data['contractStatus'] = $this->contract_status;
+            $data['contractStatus'] = $effectiveStatus;
             $data['contractFees'] = $this->contract_fees;
             $data['contractFeesType'] = $this->contract_fees_type;
             $data['contractType'] = $this->contract_type;

@@ -460,7 +460,7 @@ class PlayerController extends Controller
             return $this->error('Unauthorized access. Profile sharing links are required for guests.', 403);
         }
 
-        $query = Player::with(['mainPhoto', 'agent']);
+        $query = Player::with(['mainPhoto', 'agent', 'documents']);
 
         // Only visible and approved players
         $query->where('is_visible', true)
@@ -641,7 +641,7 @@ class PlayerController extends Controller
             return $this->error('Unauthorized access. Profile sharing links are required for guests.', 403);
         }
 
-        $query = Player::with(['mainPhoto', 'agent', 'scout', 'club']);
+        $query = Player::with(['mainPhoto', 'agent', 'scout', 'club', 'documents']);
 
         // If it's a ticker request, we only want visible and approved players
         if ($isTickerRequest) {
@@ -860,26 +860,36 @@ class PlayerController extends Controller
             $statusArr = is_array($status) ? $status : [$status];
             
             if (in_array('ACTIVE', $statusArr) || in_array('PENDING', $statusArr) || in_array('NEGOTIATION', $statusArr)) {
-                // ACTIVE = must have a contract_end_date that is today or in the future.
-                // No end_date = EXPIRED regardless of contract_status field value.
-                $query->whereNotNull('contract_end_date')
-                      ->whereDate('contract_end_date', '>=', $now)
-                      ->where(function ($sq) {
-                          $sq->whereNull('contract_nature')
-                             ->orWhere('contract_nature', '!=', 'TERMINATION');
-                      });
+                // ACTIVE = must have a contract_end_date that is today or in the future,
+                // OR have an active contract document.
+                $query->where(function ($q) use ($now) {
+                    $q->where(function ($sq) use ($now) {
+                        $sq->whereNotNull('contract_end_date')
+                           ->whereDate('contract_end_date', '>=', $now)
+                           ->where(function ($ssq) {
+                               $ssq->whereNull('contract_nature')
+                                  ->orWhere('contract_nature', '!=', 'TERMINATION');
+                           });
+                    })->orWhereHas('documents', function ($c) use ($now) {
+                        $c->where('type', 'contract')
+                          ->whereNotNull('end_date')
+                          ->whereDate('end_date', '>=', $now);
+                    });
+                });
             } elseif (in_array('EXPIRED', $statusArr)) {
                 // EXPIRED = genuinely ended contracts only:
-                // end_date in the past, OR a TERMINATION contract.
-                // Players with NO contract dates are NOT considered expired
-                // (they are "no signing date" cases) and active contracts
-                // (future end_date) must never leak into this tab.
+                // end_date in the past, OR a TERMINATION contract,
+                // AND must NOT have an active contract document.
                 $query->where(function ($q) use ($now) {
                     $q->where('contract_nature', 'TERMINATION')
                       ->orWhere(function ($sq) use ($now) {
                           $sq->whereNotNull('contract_end_date')
                              ->whereDate('contract_end_date', '<', $now);
                       });
+                })->whereDoesntHave('documents', function ($c) use ($now) {
+                    $c->where('type', 'contract')
+                      ->whereNotNull('end_date')
+                      ->whereDate('end_date', '>=', $now);
                 });
             }
         }

@@ -104,6 +104,9 @@ class PlayerMediaController extends Controller
             'uploaded_at' => now(),
         ]);
 
+        // Sync player contract dates if this is a contract document
+        $this->syncContractDatesFromDocuments($player);
+
         return $this->success(new PlayerDocumentResource($document), 'Document uploaded successfully', 201);
     }
 
@@ -124,6 +127,9 @@ class PlayerMediaController extends Controller
 
         $document->update($request->only(['name', 'start_date', 'end_date']));
 
+        // Sync player contract dates if this is a contract document
+        $this->syncContractDatesFromDocuments($player);
+
         return $this->success(new PlayerDocumentResource($document), 'Document updated successfully');
     }
 
@@ -138,6 +144,9 @@ class PlayerMediaController extends Controller
 
         $this->mediaService->delete($document->url);
         $document->delete();
+
+        // Re-sync player contract dates after deletion
+        $this->syncContractDatesFromDocuments($player);
 
         return $this->success(null, 'Document deleted successfully');
     }
@@ -356,5 +365,45 @@ class PlayerMediaController extends Controller
         }
 
         return $this->success(null, 'Strategy PDF deleted successfully');
+    }
+
+    /**
+     * Sync the player's contract_start_date, contract_end_date, and contract_status
+     * from their uploaded contract documents.
+     *
+     * Logic:
+     *  - Find the contract document with the LATEST end_date (active or future preferred)
+     *  - If found and end_date is in the future → ACTIVE
+     *  - If found and end_date is in the past  → EXPIRED
+     *  - If no contract document exists         → leave player fields unchanged
+     */
+    private function syncContractDatesFromDocuments(Player $player): void
+    {
+        $now = now()->toDateString();
+
+        // Fetch all contract-type documents for this player, ordered by end_date desc
+        // Get all and filter in PHP to be case-insensitive just like the Resource
+        $contractDocs = $player->documents()
+            ->whereNotNull('end_date')
+            ->orderByDesc('end_date')
+            ->get()
+            ->filter(fn($d) => strtolower((string)$d->type) === 'contract');
+
+        if ($contractDocs->isEmpty()) {
+            // No contract documents — nothing to sync
+            return;
+        }
+
+        // Prefer an active (future) document; fall back to the most recent one
+        $activeDoc = $contractDocs->first(fn($d) => $d->end_date->toDateString() >= $now)
+            ?? $contractDocs->first();
+
+        $newStatus = $activeDoc->end_date->toDateString() >= $now ? 'ACTIVE' : 'EXPIRED';
+
+        $player->updateQuietly([
+            'contract_start_date' => $activeDoc->start_date?->toDateString(),
+            'contract_end_date'   => $activeDoc->end_date->toDateString(),
+            'contract_status'     => $newStatus,
+        ]);
     }
 }
