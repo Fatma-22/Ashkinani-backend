@@ -474,13 +474,16 @@ class OwnerController extends Controller
     {
         $search = trim((string) $request->input('q', ''));
         $type = strtolower((string) $request->input('type', 'all'));
-        $limit = max(5, min((int) $request->input('limit', 25), 50));
+        $limit = max(10, min((int) $request->input('limit', 50), 200));
         $results = [];
 
         if (in_array($type, ['all', 'player', 'coach'], true)) {
             $players = Player::query()
                 ->with('club:id,name,name_ar,logo_path')
-                ->when($search !== '', fn ($q) => $this->applyPersonSearch($q, $search, true))
+                ->when($search !== '', fn ($q) => $this->applyPersonSearch($q, $search, true, true))
+                ->when($type === 'player', fn ($q) => $q->where(function ($qq) {
+                    $qq->where('profile_role', 'PLAYER')->orWhereNull('profile_role');
+                }))
                 ->when($type === 'coach', fn ($q) => $q->where('profile_role', 'COACH'))
                 ->orderBy('name')
                 ->limit($limit)
@@ -506,7 +509,7 @@ class OwnerController extends Controller
 
         if ($type === 'all' || $type === 'employee') {
             $employees = Employee::query()
-                ->when($search !== '', fn ($q) => $this->applyPersonSearch($q, $search, true))
+                ->when($search !== '', fn ($q) => $this->applyPersonSearch($q, $search, true, true))
                 ->orderBy('name')
                 ->limit($limit)
                 ->get();
@@ -531,7 +534,7 @@ class OwnerController extends Controller
 
         if ($type === 'all' || $type === 'agent') {
             $agents = Agent::query()
-                ->when($search !== '', fn ($q) => $this->applyPersonSearch($q, $search, true))
+                ->when($search !== '', fn ($q) => $this->applyPersonSearch($q, $search, true, false))
                 ->orderBy('name')
                 ->limit($limit)
                 ->get();
@@ -574,12 +577,14 @@ class OwnerController extends Controller
         }
 
         if ($type === 'all' || $type === 'member') {
+            // Any registered user that is not already represented by a
+            // player / agent / admin profile. This keeps every person on the
+            // website reachable (members, owners, unlinked accounts...).
             $members = User::query()
-                ->where('role', 'PUBLIC')
                 ->whereDoesntHave('player')
                 ->whereDoesntHave('agent')
                 ->whereDoesntHave('adminProfile')
-                ->when($search !== '', fn ($q) => $this->applyPersonSearch($q, $search, false))
+                ->when($search !== '', fn ($q) => $this->applyPersonSearch($q, $search, false, true))
                 ->orderBy('name')
                 ->limit($limit)
                 ->get();
@@ -591,7 +596,7 @@ class OwnerController extends Controller
                     'id' => $member->id,
                     'name' => $member->name,
                     'name_ar' => null,
-                    'role' => 'MEMBER',
+                    'role' => $member->member_type ?: ($member->role ?: 'MEMBER'),
                     'email' => $member->email,
                     'phone' => $member->phone,
                     'subtitle' => $member->organization ?: $member->email,
@@ -606,21 +611,28 @@ class OwnerController extends Controller
             );
         });
 
-        return $this->success(array_slice($results, 0, $limit));
+        return $this->success(array_slice($results, 0, 500));
     }
 
-    private function applyPersonSearch($query, string $search, bool $withArabicAndNational = false)
-    {
+    private function applyPersonSearch(
+        $query,
+        string $search,
+        bool $withArabic = false,
+        bool $withNational = false
+    ) {
         $like = '%' . $search . '%';
 
-        return $query->where(function ($q) use ($search, $like, $withArabicAndNational) {
+        return $query->where(function ($q) use ($search, $like, $withArabic, $withNational) {
             $q->where('name', 'like', $like)
                 ->orWhere('email', 'like', $like)
                 ->orWhere('phone', 'like', $like);
 
-            if ($withArabicAndNational) {
-                $q->orWhere('name_ar', 'like', $like)
-                    ->orWhere('national_id', 'like', $like);
+            if ($withArabic) {
+                $q->orWhere('name_ar', 'like', $like);
+            }
+
+            if ($withNational) {
+                $q->orWhere('national_id', 'like', $like);
             }
 
             if (preg_match('/[\x{0600}-\x{06FF}]/u', $search)) {
@@ -629,7 +641,7 @@ class OwnerController extends Controller
                 if ($pattern !== '') {
                     $q->orWhereRaw('name REGEXP ?', [$pattern]);
 
-                    if ($withArabicAndNational) {
+                    if ($withArabic) {
                         $q->orWhereRaw('name_ar REGEXP ?', [$pattern]);
                     }
                 }
