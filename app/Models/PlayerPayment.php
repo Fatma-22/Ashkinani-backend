@@ -30,7 +30,8 @@ class PlayerPayment extends Model
         'payment_date' => 'date',
     ];
 
-    protected $appends = ['remaining_amount', 'receipt_url'];
+    protected $appends = ['remaining_amount', 'receipt_url', 'is_synced'];
+
 
     public function getRemainingAmountAttribute(): string
     {
@@ -53,6 +54,26 @@ class PlayerPayment extends Model
     public function player()
     {
         return $this->belongsTo(Player::class);
+    }
+
+    public function financialRecords()
+    {
+        return $this->hasMany(FinancialRecord::class, 'player_payment_id');
+    }
+
+    public function financialRecord()
+    {
+        return $this->hasOne(FinancialRecord::class, 'player_payment_id')
+            ->where('payment_component', 'MAIN');
+    }
+
+    public function getIsSyncedAttribute(): bool
+    {
+        if ($this->relationLoaded('financialRecords')) {
+            return $this->financialRecords->isNotEmpty();
+        }
+
+        return $this->financialRecords()->exists();
     }
 
     public function creator()

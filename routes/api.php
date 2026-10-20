@@ -70,6 +70,7 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware(['role:ADMIN,OWNER', 'adminPermission:canViewFinancials'])->group(function () {
             Route::get('/owner/financials/stats', [\App\Http\Controllers\Api\V1\OwnerController::class, 'getFinancialStats']);
+            Route::get('/owner/financials/persons', [\App\Http\Controllers\Api\V1\OwnerController::class, 'searchPersons']);
             Route::get('/owner/financials', [\App\Http\Controllers\Api\V1\OwnerController::class, 'getFinancialRecords']);
             Route::post('/owner/financials', [\App\Http\Controllers\Api\V1\OwnerController::class, 'storeFinancialRecord']);
             Route::put('/owner/financials/{record}', [\App\Http\Controllers\Api\V1\OwnerController::class, 'updateFinancialRecord']);

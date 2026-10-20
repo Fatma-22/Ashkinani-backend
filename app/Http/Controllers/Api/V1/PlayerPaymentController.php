@@ -5,21 +5,29 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Player;
 use App\Models\PlayerPayment;
+use App\Services\FinancialSyncService;
 use App\Services\MediaService;
 use Illuminate\Http\Request;
 
 class PlayerPaymentController extends Controller
 {
     protected $mediaService;
+    protected $financialSync;
 
-    public function __construct(MediaService $mediaService)
+    public function __construct(MediaService $mediaService, FinancialSyncService $financialSync)
     {
         $this->mediaService = $mediaService;
+        $this->financialSync = $financialSync;
     }
 
     public function index(Player $player)
     {
-        $payments = $player->payments()->orderBy('due_date', 'desc')->orderBy('created_at', 'desc')->get();
+        $payments = $player->payments()
+            ->with(['financialRecords.related', 'financialRecord.related'])
+            ->orderBy('due_date', 'desc')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
         return $this->success($payments);
     }
 
@@ -35,8 +43,12 @@ class PlayerPaymentController extends Controller
 
         $payment = $player->payments()->create($validated + ['created_by' => auth()->id()]);
 
-        return $this->success($payment, 'Payment created successfully', 201);
+        // Keep the financial ledger in sync (payment -> financial record).
+        $this->financialSync->syncPaymentToRecords($payment);
+
+        return $this->success($payment->fresh(['financialRecords.related', 'financialRecord.related']), 'Payment created successfully', 201);
     }
+
 
     public function update(Request $request, Player $player, PlayerPayment $payment)
     {
@@ -58,7 +70,10 @@ class PlayerPaymentController extends Controller
 
         $payment->update($validated);
 
-        return $this->success($payment, 'Payment updated successfully');
+        // Payment changes must be reflected in the financial ledger.
+        $this->financialSync->syncPaymentToRecords($payment);
+
+        return $this->success($payment->fresh(['financialRecords.related', 'financialRecord.related']), 'Payment updated successfully');
     }
 
     public function destroy(Player $player, PlayerPayment $payment)
@@ -66,6 +81,9 @@ class PlayerPaymentController extends Controller
         if ($payment->player_id !== $player->id) {
             return $this->error('Payment does not belong to this player', 404);
         }
+
+        // Remove the mirrored ledger rows before deleting the payment.
+        $this->financialSync->deletePaymentMirrors($payment);
 
         $this->mediaService->delete($payment->receipt_path);
         $payment->delete();
