@@ -633,6 +633,12 @@ class PlayerController extends Controller
 
         $user = Auth::guard('sanctum')->user();
 
+        // Management screens may request every record regardless of approval.
+        // This is restricted to OWNER/ADMIN so the public directory stays filtered.
+        $includeUnapproved = $request->boolean('include_unapproved')
+            && $user
+            && in_array($user->role, ['OWNER', 'ADMIN'], true);
+
         // Allow limited public access ONLY for the ticker
         $isTickerRequest = $request->has('ticker');
 
@@ -989,7 +995,7 @@ class PlayerController extends Controller
         if ($request->has('is_approved')) {
             $isApproved = filter_var($request->is_approved, FILTER_VALIDATE_BOOLEAN);
             $query->where('is_approved', $isApproved);
-        } else {
+        } elseif (!$includeUnapproved) {
             // Default to showing only approved players for everyone
             $query->where('is_approved', true);
         }
