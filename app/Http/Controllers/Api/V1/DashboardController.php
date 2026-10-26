@@ -58,7 +58,8 @@ class DashboardController extends Controller
         // Self-registered (NOT_JOINED) and terminated profiles are not affiliates.
         $affiliateQuery = (clone $baseQuery)->where(function ($q) {
             $q->whereIn('contract_nature', ['SIGNING', 'AUTHORIZATION'])
-              ->orWhereNull('contract_nature');
+              ->orWhereNull('contract_nature')
+              ->orWhere('contract_nature', '');
         });
 
         $kpiQuery = clone $affiliateQuery;
@@ -73,7 +74,9 @@ class DashboardController extends Controller
         $today = Carbon::today()->toDateString();
 
         $signedOnly = function ($q) {
-            $q->where('contract_nature', 'SIGNING')->orWhereNull('contract_nature');
+            $q->where('contract_nature', 'SIGNING')
+              ->orWhereNull('contract_nature')
+              ->orWhere('contract_nature', '');
         };
 
         $activeContracts = (clone $kpiQuery)
@@ -191,7 +194,9 @@ class DashboardController extends Controller
 
         // Contract Nature Stats — based on all profiles (so NOT_JOINED stays visible)
         $signingCount = (clone $baseQuery)->where(function ($q) {
-            $q->where('contract_nature', 'SIGNING')->orWhereNull('contract_nature');
+            $q->where('contract_nature', 'SIGNING')
+              ->orWhereNull('contract_nature')
+              ->orWhere('contract_nature', '');
         })->count();
         $authorizationCount = (clone $baseQuery)->where('contract_nature', 'AUTHORIZATION')->count();
         $notJoinedCount = (clone $baseQuery)->where('contract_nature', 'NOT_JOINED')->count();
