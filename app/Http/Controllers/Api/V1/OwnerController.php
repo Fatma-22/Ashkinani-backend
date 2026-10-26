@@ -35,55 +35,114 @@ class OwnerController extends Controller
 
     public function getFinancialStats(Request $request)
     {
-        $incomeQuery = FinancialRecord::where('type', 'INCOME');
-        $expenseQuery = FinancialRecord::where('type', 'EXPENSE');
-        $arrearsQuery = FinancialRecord::where('type', 'ARREARS');
+        // Rates are USD-based (1 USD = rate[currency]), exactly like the frontend feed.
+        $rates = $this->resolveCurrencyRates($request);
+        $now = Carbon::now();
 
-        if ($request->has('start_date') && $request->start_date) {
-            $incomeQuery->where('transaction_date', '>=', $request->start_date);
-            $expenseQuery->where('transaction_date', '>=', $request->start_date);
-            $arrearsQuery->where('transaction_date', '>=', $request->start_date);
+        $startDate = $request->filled('start_date') ? $request->input('start_date') : null;
+        $endDate = $request->filled('end_date') ? $request->input('end_date') : null;
+
+        // All records are fetched once so totals, monthly and yearly figures stay consistent.
+        $records = FinancialRecord::query()->get(['type', 'amount', 'currency', 'transaction_date']);
+
+        $total = ['INCOME' => 0.0, 'EXPENSE' => 0.0, 'ARREARS' => 0.0];
+        $monthly = ['INCOME' => 0.0, 'EXPENSE' => 0.0, 'ARREARS' => 0.0];
+        $yearly = ['INCOME' => 0.0, 'EXPENSE' => 0.0, 'ARREARS' => 0.0];
+
+        foreach ($records as $record) {
+            $type = strtoupper((string) $record->type);
+
+            if (!array_key_exists($type, $total)) {
+                continue;
+            }
+
+            $amount = $this->convertToBaseCurrency((float) $record->amount, $record->currency, $rates);
+            $date = $record->transaction_date ? Carbon::parse($record->transaction_date) : null;
+
+            $inRange = (!$startDate || ($date && $date->toDateString() >= $startDate))
+                && (!$endDate || ($date && $date->toDateString() <= $endDate));
+
+            if ($inRange) {
+                $total[$type] += $amount;
+            }
+
+            if ($date) {
+                if ($date->month === $now->month && $date->year === $now->year) {
+                    $monthly[$type] += $amount;
+                }
+
+                if ($date->year === $now->year) {
+                    $yearly[$type] += $amount;
+                }
+            }
         }
 
-        if ($request->has('end_date') && $request->end_date) {
-            $incomeQuery->where('transaction_date', '<=', $request->end_date);
-            $expenseQuery->where('transaction_date', '<=', $request->end_date);
-            $arrearsQuery->where('transaction_date', '<=', $request->end_date);
+        // Deals can also be stored in different currencies.
+        $deals = Deal::query()->get(['amount', 'currency']);
+        $totalDealsAmount = 0.0;
+
+        foreach ($deals as $deal) {
+            $totalDealsAmount += $this->convertToBaseCurrency((float) $deal->amount, $deal->currency, $rates);
         }
-
-        $totalIncome = (float) $incomeQuery->sum('amount');
-        $totalExpense = (float) $expenseQuery->sum('amount');
-        $totalArrears = (float) $arrearsQuery->sum('amount');
-
-        $monthlyIncome = FinancialRecord::where('type', 'INCOME')
-            ->whereMonth('transaction_date', Carbon::now()->month)
-            ->whereYear('transaction_date', Carbon::now()->year)
-            ->sum('amount');
-
-        $monthlyExpense = FinancialRecord::where('type', 'EXPENSE')
-            ->whereMonth('transaction_date', Carbon::now()->month)
-            ->whereYear('transaction_date', Carbon::now()->year)
-            ->sum('amount');
-
-        $monthlyArrears = FinancialRecord::where('type', 'ARREARS')
-            ->whereMonth('transaction_date', Carbon::now()->month)
-            ->whereYear('transaction_date', Carbon::now()->year)
-            ->sum('amount');
 
         return $this->success([
-            'totalIncome' => $totalIncome,
-            'totalExpense' => $totalExpense,
-            'totalArrears' => $totalArrears,
-            'netProfit' => $totalIncome - $totalExpense,
-            'monthlyIncome' => (float) $monthlyIncome,
-            'monthlyExpense' => (float) $monthlyExpense,
-            'monthlyArrears' => (float) $monthlyArrears,
-            'yearlyIncome' => (float) FinancialRecord::where('type', 'INCOME')->whereYear('transaction_date', Carbon::now()->year)->sum('amount'),
-            'yearlyExpense' => (float) FinancialRecord::where('type', 'EXPENSE')->whereYear('transaction_date', Carbon::now()->year)->sum('amount'),
-            'yearlyArrears' => (float) FinancialRecord::where('type', 'ARREARS')->whereYear('transaction_date', Carbon::now()->year)->sum('amount'),
-            'totalDeals' => Deal::count(),
-            'totalDealsAmount' => Deal::sum('amount'),
+            'totalIncome' => round($total['INCOME'], 2),
+            'totalExpense' => round($total['EXPENSE'], 2),
+            'totalArrears' => round($total['ARREARS'], 2),
+            'netProfit' => round($total['INCOME'] - $total['EXPENSE'], 2),
+            'monthlyIncome' => round($monthly['INCOME'], 2),
+            'monthlyExpense' => round($monthly['EXPENSE'], 2),
+            'monthlyArrears' => round($monthly['ARREARS'], 2),
+            'yearlyIncome' => round($yearly['INCOME'], 2),
+            'yearlyExpense' => round($yearly['EXPENSE'], 2),
+            'yearlyArrears' => round($yearly['ARREARS'], 2),
+            'totalDeals' => $deals->count(),
+            'totalDealsAmount' => round($totalDealsAmount, 2),
+            'baseCurrency' => 'USD',
+            'rates' => $rates,
         ]);
+    }
+
+    /**
+     * Normalize the USD-based exchange rates sent by the frontend.
+     */
+    private function resolveCurrencyRates(Request $request): array
+    {
+        $raw = $request->input('rates', []);
+
+        if (is_string($raw)) {
+            $raw = json_decode($raw, true) ?: [];
+        }
+
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        $rates = ['USD' => 1.0, 'KWD' => 0.307, 'EUR' => 0.92];
+
+        foreach ($raw as $code => $value) {
+            $code = strtoupper(trim((string) $code));
+
+            if ($code !== '' && is_numeric($value) && (float) $value > 0) {
+                $rates[$code] = (float) $value;
+            }
+        }
+
+        // USD is always the base currency.
+        $rates['USD'] = 1.0;
+
+        return $rates;
+    }
+
+    /**
+     * Convert an amount from its original currency to USD.
+     */
+    private function convertToBaseCurrency(float $amount, ?string $currency, array $rates): float
+    {
+        $code = strtoupper(trim((string) $currency)) ?: 'USD';
+        $rate = $rates[$code] ?? 1.0;
+
+        return $rate > 0 ? $amount / $rate : $amount;
     }
 
     public function getAdmins()

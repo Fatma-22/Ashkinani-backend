@@ -47,52 +47,59 @@ class DashboardController extends Controller
         $start_date = $request->query('start_date');
         $end_date = $request->query('end_date');
 
-        $query = Player::query();
-        $this->applyRoleFilter($query);
-
-        // Save base query for KPIs that shouldn't be over-filtered by specific expiry ranges
-        $kpiQuery = clone $query;
-
-        // Apply additional filters for reports/charts specifically
-        $this->applyDateFilter($query, $request);
+        $baseQuery = Player::query();
+        $this->applyRoleFilter($baseQuery);
 
         if ($sport && $sport !== 'All') {
-            $query->where('sport', $sport);
-            $kpiQuery->where('sport', $sport);
+            $baseQuery->where('sport', $sport);
         }
 
-        // Total Players
+        // Actual affiliates only: signed members (legacy null = signed) + authorized members.
+        // Self-registered (NOT_JOINED) and terminated profiles are not affiliates.
+        $affiliateQuery = (clone $baseQuery)->where(function ($q) {
+            $q->whereIn('contract_nature', ['SIGNING', 'AUTHORIZATION'])
+              ->orWhereNull('contract_nature');
+        });
+
+        $kpiQuery = clone $affiliateQuery;
+        $query = clone $kpiQuery;
+        $this->applyDateFilter($query, $request);
+
+        // Total Affiliates
         $totalPlayers = (clone $kpiQuery)->count();
 
-        // Active Contracts (from Player model)
-        // Counts as active if:
-        // - main column: end date is null or in the future, and not terminated
-        // - OR player has an active Ashkanani agency contract
-        $now = Carbon::now()->toDateString();
+        // Active Contracts = signed members with a real, currently valid contract.
+        // Authorization members and records without a contract end date are NOT counted.
+        $today = Carbon::today()->toDateString();
+
+        $signedOnly = function ($q) {
+            $q->where('contract_nature', 'SIGNING')->orWhereNull('contract_nature');
+        };
+
         $activeContracts = (clone $kpiQuery)
-            ->where(function ($q) use ($now) {
-                $q->where(function ($mq) use ($now) {
-                    $mq->where(function ($sq) use ($now) {
-                        $sq->whereNull('contract_end_date')
-                            ->orWhere('contract_end_date', '>=', $now);
-                    })
-                    // Only players who are actually signed or authorized count as active
-                    // contracts. Self-added players (NOT_JOINED) and terminated ones are excluded.
-                    ->whereIn('contract_nature', ['SIGNING', 'AUTHORIZATION']);
-                })
-                ->orWhereHas('documents', function ($c) use ($now) {
+            ->where(function ($q) use ($signedOnly) {
+                $signedOnly($q);
+            })
+            ->where(function ($q) use ($today) {
+                $q->where(function ($sq) use ($today) {
+                    $sq->whereNotNull('contract_end_date')
+                       ->whereDate('contract_end_date', '>=', $today);
+                })->orWhereHas('documents', function ($c) use ($today) {
                     $c->where('type', 'contract')
                       ->whereNotNull('end_date')
-                      ->whereDate('end_date', '>=', $now);
+                      ->whereDate('end_date', '>=', $today);
                 });
             })
             ->count();
 
-        // Expiring Soon (from Player model, define as 2 months)
+        // Expiring Soon — signed active contracts ending within 2 months only.
         $expiringSoon = (clone $kpiQuery)
+            ->where(function ($q) use ($signedOnly) {
+                $signedOnly($q);
+            })
             ->whereNotNull('contract_end_date')
-            ->where('contract_end_date', '<=', Carbon::now()->addMonths(2))
-            ->where('contract_end_date', '>=', $now)
+            ->whereDate('contract_end_date', '>=', $today)
+            ->whereDate('contract_end_date', '<=', Carbon::today()->addMonths(2)->toDateString())
             ->count();
 
         // Total Market Value (Sum of market_value only as requested)
@@ -142,13 +149,16 @@ class DashboardController extends Controller
         // Strategic Indicators
         $now = Carbon::now();
         $currentYear = $now->year;
-        $youthPlayersCount = (clone $query)->where('date_of_birth', '>=', $currentYear - 23)->count();
+        $youthPlayersCount = (clone $kpiQuery)->where('date_of_birth', '>=', $currentYear - 23)->count();
         $proPlayersCount = $totalPlayers - $youthPlayersCount;
 
-        // Contract Stability (Average remaining months of contracts that haven't expired)
-        $activeContractsQuery = (clone $query)
+        // Contract Stability (Average remaining months of signed active contracts)
+        $activeContractsQuery = (clone $kpiQuery)
+            ->where(function ($q) use ($signedOnly) {
+                $signedOnly($q);
+            })
             ->whereNotNull('contract_end_date')
-            ->whereDate('contract_end_date', '>=', Carbon::now()->toDateString());
+            ->whereDate('contract_end_date', '>=', $today);
 
         $contractStability = 0; // Default placeholder
 
@@ -168,8 +178,8 @@ class DashboardController extends Controller
             // Fallback
         }
 
-        // Agency Concentration (Top 3 agents share)
-        $topAgentsCount = (clone $query)
+        // Agency Concentration (Top 3 agents share) — affiliates only
+        $topAgentsCount = (clone $kpiQuery)
             ->whereNotNull('agent_id')
             ->select('agent_id', DB::raw('count(*) as count'))
             ->groupBy('agent_id')
@@ -179,11 +189,13 @@ class DashboardController extends Controller
             ->sum('count');
         $topAgentConcentration = $totalPlayers > 0 ? ($topAgentsCount / $totalPlayers) * 100 : 0;
 
-        // Contract Nature Stats (Distinguish between full affiliates and simple profiles)
-        $signingCount = (clone $kpiQuery)->where('contract_nature', 'SIGNING')->count();
-        $authorizationCount = (clone $kpiQuery)->where('contract_nature', 'AUTHORIZATION')->count();
-        $notJoinedCount = (clone $kpiQuery)->where('contract_nature', 'NOT_JOINED')->count();
-        $terminationCount = (clone $kpiQuery)->where('contract_nature', 'TERMINATION')->count();
+        // Contract Nature Stats — based on all profiles (so NOT_JOINED stays visible)
+        $signingCount = (clone $baseQuery)->where(function ($q) {
+            $q->where('contract_nature', 'SIGNING')->orWhereNull('contract_nature');
+        })->count();
+        $authorizationCount = (clone $baseQuery)->where('contract_nature', 'AUTHORIZATION')->count();
+        $notJoinedCount = (clone $baseQuery)->where('contract_nature', 'NOT_JOINED')->count();
+        $terminationCount = (clone $baseQuery)->where('contract_nature', 'TERMINATION')->count();
 
         return $this->success([
             'totalPlayers' => $totalPlayers,
